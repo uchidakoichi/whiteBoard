@@ -487,6 +487,7 @@
             syncTimer: null,
             collaborators: {}, // { id: { name, color, mouse: {x, y}, activeLine }, lastSeen }
             localData: { version: 3, lines: {} }, // Current form data
+            syncedData: { lines: {} }, // Baseline for 3-way merge
             lockedFields: {},  // { fieldId: { userId, timestamp } }
             documentActive: true
         };
@@ -649,6 +650,7 @@
                         const parsed = JSON.parse(text);
                         if (parsed.version === 3 && parsed.lines) {
                             AppState.localData = parsed;
+                            AppState.syncedData = JSON.parse(JSON.stringify(parsed)); // Deep copy baseline
                         }
                     }
                 } catch (e) {
@@ -693,20 +695,135 @@
             if (state === 'working') els.syncStatusDot.style.backgroundColor = '#fbbf24';
         }
 
+        // --- Text editing utilities ---
+
+        // Save current caret position as an absolute offset number
+        function getCaretCharacterOffsetWithin(element) {
+            let caretOffset = 0;
+            const doc = element.ownerDocument || element.document;
+            const win = doc.defaultView || doc.parentWindow;
+            let sel;
+            if (typeof win.getSelection !== "undefined") {
+                sel = win.getSelection();
+                if (sel.rangeCount > 0) {
+                    const range = win.getSelection().getRangeAt(0);
+                    const preCaretRange = range.cloneRange();
+                    preCaretRange.selectNodeContents(element);
+                    preCaretRange.setEnd(range.endContainer, range.endOffset);
+                    caretOffset = preCaretRange.toString().length;
+                }
+            }
+            return caretOffset;
+        }
+
+        // Restore caret position by navigating text nodes
+        function setCaretPosition(element, offset) {
+            const doc = element.ownerDocument || element.document;
+            const win = doc.defaultView || doc.parentWindow;
+            if (typeof win.getSelection !== "undefined" && offset >= 0) {
+                const sel = win.getSelection();
+                const range = doc.createRange();
+
+                let charCount = 0, node;
+                // TreeWalker to traverse only text nodes
+                const textNodes = [];
+                const walker = doc.createTreeWalker(element, NodeFilter.SHOW_TEXT, null, false);
+                while (node = walker.nextNode()) {
+                    textNodes.push(node);
+                }
+
+                if (textNodes.length === 0) {
+                    range.setStart(element, 0);
+                    range.setEnd(element, 0);
+                } else {
+                    let found = false;
+                    for (let i = 0; i < textNodes.length; i++) {
+                        const textNode = textNodes[i];
+                        const nextCharCount = charCount + textNode.length;
+                        if (!found && offset >= charCount && offset <= nextCharCount) {
+                            range.setStart(textNode, offset - charCount);
+                            range.setEnd(textNode, offset - charCount);
+                            found = true;
+                            break;
+                        }
+                        charCount = nextCharCount;
+                    }
+                    if (!found) {
+                        // Fallback to end of last node
+                        const last = textNodes[textNodes.length - 1];
+                        range.setStart(last, last.length);
+                        range.setEnd(last, last.length);
+                    }
+                }
+
+                sel.removeAllRanges();
+                sel.addRange(range);
+            }
+        }
+
+        // Simplistic 3-way merge
+        function mergeText(original, local, remote) {
+            if (original === local) return remote; // No local changes, take remote
+            if (original === remote) return local; // No remote changes, keep local
+            if (local === remote) return local; // Both changed to same thing
+
+            // Both changed differently. Naive concatenation avoiding complete loss
+            // In a real app we'd use diff-match-patch or CRDTs.
+            // Determine prefixes to guess what's new
+            let i = 0;
+            while (i < local.length && i < remote.length && local[i] === remote[i]) i++;
+            const commonPrefix = local.substring(0, i);
+
+            let j = 0;
+            while (j < local.length - i && j < remote.length - i &&
+                local[local.length - 1 - j] === remote[remote.length - 1 - j]) j++;
+            const commonSuffix = local.substring(local.length - j);
+
+            const localDiff = local.substring(i, local.length - j);
+            const remoteDiff = remote.substring(i, remote.length - j);
+
+            // If the user is just typing at the end, localDiff might be empty and remote changed
+            // We just append both diffs to be safe
+            return commonPrefix + remoteDiff + localDiff + commonSuffix;
+        }
+
         // Apply Data to UI
         function formToView(linesData) {
             if (!linesData) return;
             const lineNodes = els.formPaper.querySelectorAll('.line-block');
+
             lineNodes.forEach(el => {
                 const id = el.getAttribute('data-line-id');
-                // Skip if currently focused
-                if (document.activeElement === el) return;
-
                 const remoteText = linesData[id] || '';
-                if (el.innerText !== remoteText) {
-                    el.innerText = remoteText;
+                const localText = el.innerText || '';
+                const originalText = AppState.syncedData.lines[id] || '';
+                const isActive = (document.activeElement === el);
+
+                if (localText !== remoteText) {
+                    let newText = remoteText;
+                    let caretPos = -1;
+
+                    if (isActive) {
+                        // Attempt 3-way merge if user is actively typing while sync arrives
+                        newText = mergeText(originalText, localText, remoteText);
+                        caretPos = getCaretCharacterOffsetWithin(el);
+                        // Adjust caret naively based on length difference
+                        if (newText.length > localText.length) {
+                            caretPos += (newText.length - localText.length);
+                        }
+                    }
+
+                    if (el.innerText !== newText) {
+                        el.innerText = newText;
+                        if (isActive && caretPos >= 0) {
+                            setCaretPosition(el, caretPos);
+                        }
+                    }
                 }
             });
+
+            // Update baseline
+            AppState.syncedData.lines = JSON.parse(JSON.stringify(linesData));
         }
 
         // --- Sync Engine ---
@@ -840,6 +957,9 @@
                     AppState.localData.lines[id] = text;
                 }
 
+                // Update our own baseline since we originated this change
+                AppState.syncedData.lines = JSON.parse(JSON.stringify(data.lines));
+
                 await writeToFile(mainFileHandle, JSON.stringify(data));
                 AppState._lastMainFileMod = Date.now();
             } catch (e) {
@@ -925,15 +1045,15 @@
                     els.cursorOverlay.appendChild(cursor);
                 }
 
-                // Lock Line
+                // Lock Line (Soft Lock)
                 if (state.activeLine) {
                     const lineEl = document.querySelector(`.line-block[data-line-id="${state.activeLine}"]`);
+                    // We no longer set contenteditable=false, just visual indications
                     if (lineEl && lineEl !== document.activeElement) {
                         lineEl.classList.add('field-locked');
                         lineEl.style.setProperty('--cursor-color', state.user.color);
                         lineEl.style.setProperty('--cursor-bg-color', state.user.color + '10');
                         lineEl.setAttribute('data-locked-by', state.user.name + 'が編集中');
-                        lineEl.setAttribute('contenteditable', 'false'); // Prevent native editing
                     }
                 }
             }
