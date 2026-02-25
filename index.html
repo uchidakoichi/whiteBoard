@@ -1,0 +1,1020 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>A4 Collaborative Form</title>
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --primary-hover: #4338ca;
+            --bg-color: #f3f4f6;
+            --paper: #ffffff;
+            --text-main: #1f2937;
+            --text-muted: #6b7280;
+            --border: #e5e7eb;
+            --danger: #ef4444;
+            --success: #10b981;
+
+            /* A4 Size settings */
+            --a4-width: 210mm;
+            --a4-height: 297mm;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        /* --- UI Components --- */
+        .btn {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn:hover {
+            background-color: var(--primary-hover);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-outline {
+            background-color: transparent;
+            color: var(--primary);
+            border: 1px solid var(--primary);
+        }
+
+        .btn-outline:hover {
+            background-color: var(--primary);
+            color: white;
+        }
+
+        /* --- Header --- */
+        header {
+            background-color: white;
+            border-bottom: 1px solid var(--border);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+        }
+
+        .header-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--danger);
+        }
+
+        .status-dot.connected {
+            background-color: var(--success);
+        }
+
+        /* --- Modals --- */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            backdrop-filter: blur(4px);
+        }
+
+        .modal {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            max-width: 400px;
+            width: 100%;
+        }
+
+        .modal-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        .modal-desc {
+            color: var(--text-muted);
+            margin-bottom: 1.5rem;
+            font-size: 0.875rem;
+            line-height: 1.5;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            font-size: 0.875rem;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 0.375rem;
+            font-size: 1rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+        }
+
+        /* --- Workspace & Paper --- */
+        main {
+            flex: 1;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        .paper-container {
+            position: relative;
+        }
+
+        .paper {
+            width: var(--a4-width);
+            min-height: var(--a4-height);
+            background-color: var(--paper);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            /* Removed fixed padding to allow absolute positioning from edges easily */
+            position: relative;
+            cursor: text;
+            /* Indication it's clickable everywhere */
+            overflow: hidden;
+            /* Avoid text blocks hanging out of A4 bounds visually if needed, or leave to allow margin notes */
+        }
+
+        /* Print styles */
+        @media print {
+            body {
+                background-color: white;
+            }
+
+            header,
+            .modal-overlay,
+            .no-print {
+                display: none !important;
+            }
+
+            main {
+                padding: 0;
+            }
+
+            .paper {
+                box-shadow: none;
+                width: 100%;
+                min-height: 100%;
+                padding: 0;
+            }
+        }
+
+        /* --- Line Blocks --- */
+        .line-block {
+            min-height: 2em;
+            line-height: 2em;
+            padding: 0 10px;
+            font-size: 11pt;
+            outline: none;
+            border-bottom: 1px dotted rgba(0, 0, 0, 0.15);
+            /* Notebook ruled lines */
+            word-break: break-all;
+            white-space: pre-wrap;
+            position: relative;
+            transition: background-color 0.2s;
+        }
+
+        .line-block:hover {
+            background-color: rgba(0, 0, 0, 0.02);
+            cursor: text;
+        }
+
+        .line-block:focus {
+            background-color: rgba(79, 70, 229, 0.05);
+            z-index: 20;
+        }
+
+        /* Prevent empty lines from collapsing */
+        .line-block:empty::after {
+            content: "\200B";
+            /* Zero width space */
+        }
+
+        /* --- Dynamic Text Blocks --- */
+        .text-block {
+            position: absolute;
+            min-width: 50px;
+            min-height: 1.5em;
+            padding: 2px 4px;
+            font-size: 11pt;
+            /* standard readable size */
+            line-height: 1.5;
+            outline: none;
+            border: 1px dashed transparent;
+            word-break: break-all;
+            white-space: pre-wrap;
+            z-index: 10;
+        }
+
+        .paper:hover .text-block {
+            /* optional hints of existing blocks when hovering paper */
+            border-color: rgba(0, 0, 0, 0.05);
+        }
+
+        .text-block:hover {
+            border-color: var(--border);
+            cursor: text;
+        }
+
+        .text-block:focus {
+            border: 1px dashed var(--primary);
+            background-color: rgba(79, 70, 229, 0.02);
+            z-index: 20;
+        }
+
+        .text-block:empty:not(:focus)::before {
+            content: "書き込む...";
+            color: #adb5bd;
+            font-style: italic;
+        }
+
+        /* --- Collab Elements --- */
+        .users-list {
+            display: flex;
+            gap: -0.5rem;
+            margin-right: 1rem;
+        }
+
+        .user-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+            border: 2px solid white;
+            position: relative;
+            cursor: pointer;
+        }
+
+        .user-avatar:hover::after {
+            content: attr(data-name);
+            position: absolute;
+            bottom: -25px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            white-space: nowrap;
+            z-index: 10;
+        }
+
+        /* Remote Cursor & Selection */
+        .remote-cursor {
+            position: absolute;
+            pointer-events: none;
+            z-index: 50;
+            transition: all 0.1s ease-out;
+        }
+
+        .remote-cursor::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 2px;
+            height: 1.2em;
+            /* match text height slightly */
+            background-color: var(--cursor-color);
+        }
+
+        .remote-cursor::after {
+            content: attr(data-name);
+            position: absolute;
+            top: -20px;
+            left: 0;
+            background-color: var(--cursor-color);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            white-space: nowrap;
+            font-weight: bold;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        }
+
+        .field-locked {
+            border-color: var(--cursor-color) !important;
+            background-color: var(--cursor-bg-color) !important;
+        }
+
+        .field-locked::after {
+            content: attr(data-locked-by);
+            position: absolute;
+            top: -10px;
+            right: 5px;
+            font-size: 9px;
+            color: var(--cursor-color);
+            background: white;
+            padding: 0 4px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Setup Modal -->
+    <div id="setup-modal" class="modal-overlay">
+        <div class="modal">
+            <h2 class="modal-title">ようこそ</h2>
+            <p class="modal-desc">共有ネットワークドライブ上で共同編集を行うための設定をします。まずはあなたの名前を入力してください。</p>
+
+            <div id="step-name">
+                <div class="form-group">
+                    <label class="form-label" for="user-name">表示名</label>
+                    <input type="text" id="user-name" class="form-input" placeholder="例: 山田 太郎">
+                </div>
+                <button id="btn-next-step" class="btn" style="width: 100%; justify-content: center;">次へ</button>
+            </div>
+
+            <div id="step-folder" style="display: none;">
+                <p class="modal-desc">ネットワークドライブ上の共有フォルダ（空のフォルダ、または既にデータがあるフォルダ）を選択してください。</p>
+                <div style="display: flex; flex-direction: column; gap: 1rem;">
+                    <button id="btn-select-folder" class="btn" style="justify-content: center;">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z">
+                            </path>
+                        </svg>
+                        共有フォルダを選択
+                    </button>
+
+                    <div id="recent-folder-container"
+                        style="display: none; border-top: 1px solid var(--border); padding-top: 1rem;">
+                        <p class="form-label">前回のフォルダを再度開く（要権限確認）</p>
+                        <button id="btn-open-recent" class="btn btn-outline"
+                            style="justify-content: center; width: 100%;">
+                            [フォルダ名] を開く
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main App UI -->
+    <header>
+        <div class="header-title">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" y1="13" x2="8" y2="13"></line>
+                <line x1="16" y1="17" x2="8" y2="17"></line>
+                <polyline points="10 9 9 9 8 9"></polyline>
+            </svg>
+            共有帳票 <span id="current-folder-name"
+                style="font-size: 0.875rem; color: var(--text-muted); font-weight: normal; margin-left: 0.5rem;"></span>
+        </div>
+
+        <div style="display: flex; align-items: center;">
+            <div id="active-users" class="users-list">
+                <!-- User Avatars injected here -->
+            </div>
+
+            <div class="status-indicator" style="margin-right: 1.5rem;">
+                <div id="sync-status-dot" class="status-dot"></div>
+                <span id="sync-status-text">未接続</span>
+            </div>
+
+            <button id="btn-print" class="btn btn-outline" style="margin-right: 0.5rem;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="6 9 6 2 18 2 18 9"></polyline>
+                    <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+                    <rect x="6" y="14" width="12" height="8"></rect>
+                </svg>
+                印刷
+            </button>
+        </div>
+    </header>
+
+    <main>
+        <div class="paper-container" id="paper-container">
+            <div class="paper" id="form-paper">
+                <!-- Data blocks will be dynamically added here -->
+            </div>
+            <!-- Cursor Overlay Container -->
+            <div id="cursor-overlay"
+                style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 50;">
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // --- State Management ---
+        const AppState = {
+            user: {
+                id: '',
+                name: '',
+                color: ''
+            },
+            folderHandle: null,
+            syncDirHandle: null,
+            dataFileName: 'data.json',
+            syncInterval: 800, // ms
+            syncTimer: null,
+            collaborators: {}, // { id: { name, color, mouse: {x, y}, activeLine }, lastSeen }
+            localData: { version: 3, lines: {} }, // Current form data
+            lockedFields: {},  // { fieldId: { userId, timestamp } }
+            documentActive: true
+        };
+
+        const colors = [
+            '#ef4444', '#f97316', '#f59e0b', '#84cc16', '#22c55e',
+            '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6', '#d946ef', '#f43f5e'
+        ];
+
+        // --- DOM Elements ---
+        const els = {
+            modal: document.getElementById('setup-modal'),
+            stepName: document.getElementById('step-name'),
+            stepFolder: document.getElementById('step-folder'),
+            userNameInput: document.getElementById('user-name'),
+            btnNextStep: document.getElementById('btn-next-step'),
+            btnSelectFolder: document.getElementById('btn-select-folder'),
+            btnOpenRecent: document.getElementById('btn-open-recent'),
+            recentFolderContainer: document.getElementById('recent-folder-container'),
+            currentFolderName: document.getElementById('current-folder-name'),
+            syncStatusDot: document.getElementById('sync-status-dot'),
+            syncStatusText: document.getElementById('sync-status-text'),
+            activeUsersList: document.getElementById('active-users'),
+            btnPrint: document.getElementById('btn-print'),
+            formPaper: document.getElementById('form-paper'),
+            cursorOverlay: document.getElementById('cursor-overlay'),
+            paperContainer: document.getElementById('paper-container')
+        };
+
+        // --- IndexedDB for Settings ---
+        const DB_NAME = 'A4FormAppDB';
+        const STORE_NAME = 'settings';
+
+        function initDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, 1);
+                request.onupgradeneeded = (e) => {
+                    const db = e.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        db.createObjectStore(STORE_NAME);
+                    }
+                };
+                request.onsuccess = (e) => resolve(e.target.result);
+                request.onerror = (e) => reject(e.target.error);
+            });
+        }
+
+        async function getSetting(key) {
+            const db = await initDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(STORE_NAME, 'readonly');
+                const store = tx.objectStore(STORE_NAME);
+                const query = store.get(key);
+                query.onsuccess = () => resolve(query.result);
+                query.onerror = (e) => reject(e.target.error);
+            });
+        }
+
+        async function saveSetting(key, value) {
+            const db = await initDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                const store = tx.objectStore(STORE_NAME);
+                const query = store.put(value, key);
+                query.onsuccess = () => resolve();
+                query.onerror = (e) => reject(e.target.error);
+            });
+        }
+
+        // --- Initialization ---
+        async function boot() {
+            // Load user data
+            const savedUser = await getSetting('user');
+            if (savedUser) {
+                AppState.user = savedUser;
+                els.userNameInput.value = savedUser.name;
+            } else {
+                AppState.user.id = 'user_' + Math.random().toString(36).substr(2, 9);
+                AppState.user.color = colors[Math.floor(Math.random() * colors.length)];
+            }
+
+            // Check for recent folder
+            const savedFolder = await getSetting('folderHandle');
+            if (savedFolder && savedFolder.kind === 'directory') {
+                els.recentFolderContainer.style.display = 'block';
+                els.btnOpenRecent.innerText = `${savedFolder.name} を開く（権限確認）`;
+                AppState.folderHandle = savedFolder;
+            }
+
+            // Event Listeners
+            els.btnNextStep.addEventListener('click', () => {
+                const name = els.userNameInput.value.trim();
+                if (!name) return alert('名前を入力してください');
+
+                AppState.user.name = name;
+                saveSetting('user', AppState.user);
+
+                els.stepName.style.display = 'none';
+                els.stepFolder.style.display = 'block';
+            });
+
+            els.btnSelectFolder.addEventListener('click', async () => {
+                try {
+                    const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+                    await handleFolderSelection(handle);
+                } catch (e) {
+                    console.error('Folder selection failed:', e);
+                }
+            });
+
+            els.btnOpenRecent.addEventListener('click', async () => {
+                if (!AppState.folderHandle) return;
+                try {
+                    const hasPermission = await verifyPermission(AppState.folderHandle, true);
+                    if (hasPermission) {
+                        await handleFolderSelection(AppState.folderHandle);
+                    }
+                } catch (e) {
+                    console.error('Failed to open recent folder:', e);
+                    alert('前回のフォルダを開けませんでした。フォルダが移動・削除された可能性があります。');
+                    els.recentFolderContainer.style.display = 'none';
+                }
+            });
+
+            els.btnPrint.addEventListener('click', () => window.print());
+        }
+
+        async function verifyPermission(fileHandle, readWrite) {
+            const options = { mode: readWrite ? 'readwrite' : 'read' };
+            if ((await fileHandle.queryPermission(options)) === 'granted') {
+                return true;
+            }
+            if ((await fileHandle.requestPermission(options)) === 'granted') {
+                return true;
+            }
+            return false;
+        }
+
+        async function handleFolderSelection(folderHandle) {
+            AppState.folderHandle = folderHandle;
+            await saveSetting('folderHandle', folderHandle); // Save for next time
+
+            els.currentFolderName.innerText = `[${folderHandle.name}]`;
+
+            // UI Transition
+            els.modal.style.display = 'none';
+            setSyncStatus('working', '初期化中...');
+
+            try {
+                // Ensure App directories exist
+                AppState.syncDirHandle = await folderHandle.getDirectoryHandle('.sync', { create: true });
+
+                // Initialize or read main data file
+                let fileHandle;
+                try {
+                    fileHandle = await folderHandle.getFileHandle(AppState.dataFileName);
+                    const file = await fileHandle.getFile();
+                    const text = await file.text();
+                    if (text) {
+                        const parsed = JSON.parse(text);
+                        if (parsed.version === 3 && parsed.lines) {
+                            AppState.localData = parsed;
+                        }
+                    }
+                } catch (e) {
+                    // File doesn't exist or is old format, create new one
+                    fileHandle = await folderHandle.getFileHandle(AppState.dataFileName, { create: true });
+                    await writeToFile(fileHandle, JSON.stringify({ version: 3, lines: {} }));
+                }
+
+                setupFormListeners(); // Generate lines first
+                formToView(AppState.localData.lines || {}); // Then populate with data
+
+                // Start Collab Features
+                startSyncEngine();
+
+
+                setSyncStatus('connected', '接続済み');
+            } catch (e) {
+                console.error(e);
+                setSyncStatus('error', 'エラー');
+                alert('フォルダの初期化に失敗しました。書き込み権限を確認してください。');
+                els.modal.style.display = 'flex';
+            }
+        }
+
+        // --- File System Helpers ---
+        async function writeToFile(fileHandle, content) {
+            try {
+                const writable = await fileHandle.createWritable();
+                await writable.write(content);
+                await writable.close();
+            } catch (e) {
+                console.error("Write error:", e);
+                // Often happens if file is busy. We rely on next sync iteration.
+            }
+        }
+
+        // UI Helpers
+        function setSyncStatus(state, text) {
+            els.syncStatusText.innerText = text;
+            els.syncStatusDot.className = 'status-dot';
+            if (state === 'connected') els.syncStatusDot.classList.add('connected');
+            if (state === 'working') els.syncStatusDot.style.backgroundColor = '#fbbf24';
+        }
+
+        // Apply Data to UI
+        function formToView(linesData) {
+            if (!linesData) return;
+            const lineNodes = els.formPaper.querySelectorAll('.line-block');
+            lineNodes.forEach(el => {
+                const id = el.getAttribute('data-line-id');
+                // Skip if currently focused
+                if (document.activeElement === el) return;
+
+                const remoteText = linesData[id] || '';
+                if (el.innerText !== remoteText) {
+                    el.innerText = remoteText;
+                }
+            });
+        }
+
+        // --- Sync Engine ---
+        function startSyncEngine() {
+            if (AppState.syncTimer) clearInterval(AppState.syncTimer);
+
+            // Initial Sync
+            performSync();
+
+            // Polling
+            AppState.syncTimer = setInterval(performSync, AppState.syncInterval);
+
+            // Handle window visibility to reduce polling when hidden
+            document.addEventListener('visibilitychange', () => {
+                AppState.documentActive = document.visibilityState === 'visible';
+                if (!AppState.documentActive) {
+                    clearInterval(AppState.syncTimer);
+                    AppState.syncTimer = setInterval(performSync, AppState.syncInterval * 3); // Slow down
+                } else {
+                    clearInterval(AppState.syncTimer);
+                    AppState.syncTimer = setInterval(performSync, AppState.syncInterval);
+                    performSync();
+                }
+            });
+
+            // Cleanup on exit
+            window.addEventListener('beforeunload', async () => {
+                try {
+                    // Try to delete our sync file
+                    await AppState.syncDirHandle.removeEntry(`${AppState.user.id}.json`);
+                } catch (e) { }
+            });
+        }
+
+        async function performSync() {
+            if (!AppState.syncDirHandle || !AppState.folderHandle) return;
+
+            const now = Date.now();
+
+            try {
+                // 1. Write my state
+                const activeEl = document.activeElement;
+                const myState = {
+                    user: AppState.user,
+                    timestamp: now,
+                    activeLine: activeEl && activeEl.classList.contains('line-block')
+                        ? activeEl.getAttribute('data-line-id') : null,
+                    mouse: AppState.mousePos
+                };
+
+                const myFileHandle = await AppState.syncDirHandle.getFileHandle(`${AppState.user.id}.json`, { create: true });
+                await writeToFile(myFileHandle, JSON.stringify(myState));
+
+                // 2. Read others states
+                const currentUsers = {};
+                for await (const entry of AppState.syncDirHandle.values()) {
+                    if (entry.kind === 'file' && entry.name.endsWith('.json') && entry.name !== `${AppState.user.id}.json`) {
+                        try {
+                            const file = await entry.getFile();
+                            // Skip old files (e.g. crashed sessions)
+                            if (now - file.lastModified > 15000) {
+                                await AppState.syncDirHandle.removeEntry(entry.name);
+                                continue;
+                            }
+                            const text = await file.text();
+                            const state = JSON.parse(text);
+                            if (state && state.user) {
+                                currentUsers[state.user.id] = state;
+                            }
+                        } catch (e) { /* ignore parse errors */ }
+                    }
+                }
+
+                AppState.collaborators = currentUsers;
+                updateCollabUI();
+
+                // 3. Read main data file if modified
+                const mainFileHandle = await AppState.folderHandle.getFileHandle(AppState.dataFileName);
+                const mainFile = await mainFileHandle.getFile();
+
+                if (!AppState._lastMainFileMod || mainFile.lastModified > AppState._lastMainFileMod) {
+                    AppState._lastMainFileMod = mainFile.lastModified;
+                    try {
+                        const text = await mainFile.text();
+                        const newData = JSON.parse(text);
+
+                        // Require version 3 schema for line-based layout
+                        if (newData && newData.version === 3 && newData.lines) {
+                            AppState.localData = newData;
+                            formToView(newData.lines);
+                        } else if (newData && newData.version < 3) {
+                            // Ignore legacy formats or overwrite if saved
+                        }
+                    } catch (e) { }
+                }
+
+                // If sync status was error, recover it
+                if (els.syncStatusDot.style.backgroundColor === 'var(--danger)' || els.syncStatusDot.style.backgroundColor === 'rgb(239, 68, 68)') {
+                    setSyncStatus('connected', '接続済み');
+                }
+
+            } catch (e) {
+                console.warn('Sync iteration failed:', e);
+                // setSyncStatus('error', '一時的エラー'); // Often just locking issues, ignore visually mostly
+            }
+        }
+
+        async function saveLineData(id, text) {
+            if (!AppState.folderHandle) return;
+
+            try {
+                const mainFileHandle = await AppState.folderHandle.getFileHandle(AppState.dataFileName);
+                const mainFile = await mainFileHandle.getFile();
+                const jsonText = await mainFile.text();
+
+                let data = { version: 3, lines: {} };
+                try {
+                    if (jsonText && jsonText.trim() !== "") {
+                        const parsed = JSON.parse(jsonText);
+                        if (parsed.version === 3 && parsed.lines) {
+                            data = parsed;
+                        }
+                    }
+                } catch (e) { }
+
+                if (text.trim() === '') {
+                    delete data.lines[id];
+                    delete AppState.localData.lines[id];
+                } else {
+                    data.lines[id] = text;
+                    AppState.localData.lines[id] = text;
+                }
+
+                await writeToFile(mainFileHandle, JSON.stringify(data));
+                AppState._lastMainFileMod = Date.now();
+            } catch (e) {
+                console.error("Save Data Error:", e);
+            }
+        }
+
+        // --- Interaction & UI Updates ---
+        function getCursorPosition() {
+            // Simplified cursor tracking for custom absolute position
+            // Getting absolute physical position of cursor based on selection
+            const sel = window.getSelection();
+            if (!sel.rangeCount) return null;
+
+            const range = sel.getRangeAt(0);
+            const rect = range.getBoundingClientRect();
+
+            const paperRect = els.paperContainer.getBoundingClientRect();
+
+            // Only broadcast if inside paper
+            if (rect.x === 0 && rect.y === 0) {
+                // fallback if empty
+                const activeEl = document.activeElement;
+                if (activeEl && activeEl.classList.contains('line-block')) {
+                    const elRect = activeEl.getBoundingClientRect();
+                    return { x: elRect.left - paperRect.left + 5, y: elRect.top - paperRect.top + 10 };
+                }
+                return null;
+            }
+
+            return {
+                x: rect.left - paperRect.left,
+                y: rect.top - paperRect.top
+            };
+        }
+
+        function updateCollabUI() {
+            const now = Date.now();
+
+            // 1. Avatars
+            els.activeUsersList.innerHTML = '';
+
+            // Add self first
+            const selfAvatar = document.createElement('div');
+            selfAvatar.className = 'user-avatar';
+            selfAvatar.style.backgroundColor = AppState.user.color;
+            selfAvatar.setAttribute('data-name', AppState.user.name + ' (あなた)');
+            selfAvatar.innerText = AppState.user.name.charAt(0);
+            selfAvatar.style.zIndex = 100;
+            els.activeUsersList.appendChild(selfAvatar);
+
+            // 2. Clear old cursors & locks
+            els.cursorOverlay.innerHTML = '';
+            document.querySelectorAll('.field-locked').forEach(el => {
+                el.classList.remove('field-locked');
+                el.removeAttribute('data-locked-by');
+                // Re-enable if it was locked
+                el.setAttribute('contenteditable', 'true');
+            });
+
+            // 3. Render Others
+            let zIndex = 99;
+            for (const id in AppState.collaborators) {
+                const state = AppState.collaborators[id];
+
+                // Add avatar
+                const avatar = document.createElement('div');
+                avatar.className = 'user-avatar';
+                avatar.style.backgroundColor = state.user.color;
+                avatar.setAttribute('data-name', state.user.name);
+                avatar.innerText = state.user.name.charAt(0);
+                avatar.style.zIndex = zIndex--;
+                els.activeUsersList.appendChild(avatar);
+
+                // Add Cursor
+                if (state.cursor && state.activeLine) {
+                    const cursor = document.createElement('div');
+                    cursor.className = 'remote-cursor';
+                    cursor.style.left = `${state.cursor.x}px`;
+                    cursor.style.top = `${state.cursor.y}px`;
+                    cursor.style.setProperty('--cursor-color', state.user.color);
+                    cursor.setAttribute('data-name', state.user.name);
+                    els.cursorOverlay.appendChild(cursor);
+                }
+
+                // Lock Line
+                if (state.activeLine) {
+                    const lineEl = document.querySelector(`.line-block[data-line-id="${state.activeLine}"]`);
+                    if (lineEl && lineEl !== document.activeElement) {
+                        lineEl.classList.add('field-locked');
+                        lineEl.style.setProperty('--cursor-color', state.user.color);
+                        lineEl.style.setProperty('--cursor-bg-color', state.user.color + '10');
+                        lineEl.setAttribute('data-locked-by', state.user.name + 'が編集中');
+                        lineEl.setAttribute('contenteditable', 'false'); // Prevent native editing
+                    }
+                }
+            }
+        }
+
+        function attachListenersToLine(el) {
+            let debounceTimer = null;
+
+            el.addEventListener('input', (e) => {
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    const id = el.getAttribute('data-line-id');
+                    saveLineData(id, el.innerText);
+                }, 500);
+                performSync();
+            });
+
+            el.addEventListener('focus', () => performSync());
+            el.addEventListener('click', (e) => { e.stopPropagation(); performSync(); });
+
+            el.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault(); // Prevent multi-line in single block
+                    const nextLine = el.nextElementSibling;
+                    if (nextLine && nextLine.classList.contains('line-block')) {
+                        nextLine.focus();
+                    }
+                } else if (e.key === 'ArrowUp') {
+                    const prevLine = el.previousElementSibling;
+                    if (prevLine && prevLine.classList.contains('line-block')) {
+                        prevLine.focus();
+                    }
+                } else if (e.key === 'ArrowDown') {
+                    const nextLine = el.nextElementSibling;
+                    if (nextLine && nextLine.classList.contains('line-block')) {
+                        nextLine.focus();
+                    }
+                }
+            });
+
+            el.addEventListener('keyup', (e) => {
+                if (['ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                    performSync();
+                }
+            });
+
+            el.addEventListener('blur', () => {
+                // Save empty line removal to db if cleared
+                if (el.innerText.trim() === '') {
+                    const id = el.getAttribute('data-line-id');
+                    saveLineData(id, ''); // Triggers deletion in db structure
+                }
+                setTimeout(performSync, 100);
+            });
+
+            el.addEventListener('paste', (e) => {
+                e.preventDefault();
+                const text = (e.originalEvent || e).clipboardData.getData('text/plain');
+                const singleLineText = text.replace(/[\r\n]+/g, ' ');
+                document.execCommand('insertText', false, singleLineText);
+            });
+        }
+
+        function setupFormListeners() {
+            // Generate lines on paper
+            els.formPaper.innerHTML = '';
+            for (let i = 0; i < 45; i++) {
+                const id = `line-${i}`;
+                const el = document.createElement('div');
+                el.className = 'line-block';
+                el.setAttribute('data-line-id', id);
+                el.setAttribute('contenteditable', 'true');
+                els.formPaper.appendChild(el);
+
+                attachListenersToLine(el);
+            }
+        }
+
+        // Start
+        boot();
+    </script>
+</body>
+
+</html>
