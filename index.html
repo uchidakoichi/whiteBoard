@@ -975,6 +975,26 @@
             }
         }
 
+        async function saveFullData() {
+            if (!AppState.folderHandle) return;
+
+            try {
+                const mainFileHandle = await AppState.folderHandle.getFileHandle(AppState.dataFileName);
+                const data = {
+                    version: 3,
+                    lines: AppState.localData.lines
+                };
+
+                // Update baseline
+                AppState.syncedData.lines = JSON.parse(JSON.stringify(AppState.localData.lines));
+
+                await writeToFile(mainFileHandle, JSON.stringify(data));
+                AppState._lastMainFileMod = Date.now();
+            } catch (e) {
+                console.error("Save Full Data Error:", e);
+            }
+        }
+
         async function saveLineData(id, text) {
             if (!AppState.folderHandle) return;
 
@@ -1118,12 +1138,89 @@
             el.addEventListener('focus', () => performSync());
             el.addEventListener('click', (e) => { e.stopPropagation(); performSync(); });
 
-            el.addEventListener('keydown', (e) => {
+            el.addEventListener('keydown', async (e) => {
                 if (e.key === 'Enter') {
-                    e.preventDefault(); // Prevent multi-line in single block
-                    const nextLine = el.nextElementSibling;
-                    if (nextLine && nextLine.classList.contains('line-block')) {
-                        nextLine.focus();
+                    e.preventDefault();
+
+                    const id = el.getAttribute('data-line-id');
+                    const match = id.match(/line-(\d+)/);
+                    if (!match) return;
+                    const index = parseInt(match[1]);
+
+                    const text = el.innerText;
+                    const caretPos = getCaretCharacterOffsetWithin(el);
+                    const part1 = text.substring(0, caretPos);
+                    const part2 = text.substring(caretPos);
+
+                    // 1. Shift contents in AppState.localData.lines DOWN
+                    for (let i = 44; i > index + 1; i--) {
+                        const targetId = `line-${i}`;
+                        const sourceId = `line-${i - 1}`;
+                        AppState.localData.lines[targetId] = AppState.localData.lines[sourceId] || '';
+                    }
+
+                    // 2. Update current and next line in AppState
+                    AppState.localData.lines[`line-${index}`] = part1;
+                    if (index < 44) {
+                        AppState.localData.lines[`line-${index + 1}`] = part2;
+                    }
+
+                    // 3. Update UI
+                    formToView(AppState.localData.lines);
+
+                    // 4. Save
+                    await saveFullData();
+
+                    // 5. Focus next line
+                    const nextId = `line-${index + 1}`;
+                    const nextEl = els.formPaper.querySelector(`.line-block[data-line-id="${nextId}"]`);
+                    if (nextEl) {
+                        nextEl.focus();
+                        setCaretPosition(nextEl, 0);
+                    }
+
+                    performSync();
+                } else if (e.key === 'Backspace') {
+                    const id = el.getAttribute('data-line-id');
+                    const match = id.match(/line-(\d+)/);
+                    if (!match) return;
+                    const index = parseInt(match[1]);
+
+                    const caretPos = getCaretCharacterOffsetWithin(el);
+                    if (caretPos === 0 && index > 0) {
+                        e.preventDefault();
+
+                        const prevId = `line-${index - 1}`;
+                        const prevEl = els.formPaper.querySelector(`.line-block[data-line-id="${prevId}"]`);
+                        if (!prevEl) return;
+
+                        const currentText = el.innerText;
+                        const prevText = prevEl.innerText;
+                        const newCaretPos = prevText.length;
+
+                        // 1. Update previous line in AppState
+                        AppState.localData.lines[prevId] = prevText + currentText;
+
+                        // 2. Shift contents in AppState.localData.lines UP
+                        for (let i = index; i < 44; i++) {
+                            const targetId = `line-${i}`;
+                            const sourceId = `line-${i + 1}`;
+                            AppState.localData.lines[targetId] = AppState.localData.lines[sourceId] || '';
+                        }
+                        // Clear last line
+                        delete AppState.localData.lines[`line-44`];
+
+                        // 3. Update UI
+                        formToView(AppState.localData.lines);
+
+                        // 4. Save
+                        await saveFullData();
+
+                        // 5. Focus previous line and set caret
+                        prevEl.focus();
+                        setCaretPosition(prevEl, newCaretPos);
+
+                        performSync();
                     }
                 } else if (e.key === 'ArrowUp') {
                     const prevLine = el.previousElementSibling;
