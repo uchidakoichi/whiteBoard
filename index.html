@@ -177,18 +177,23 @@
             box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
         }
 
-        /* --- Workspace & Paper --- */
         main {
             flex: 1;
             padding: 2rem;
             display: flex;
-            justify-content: center;
+            flex-direction: column;
+            /* Add flex column for gap */
+            align-items: center;
+            /* Center horizontally */
             overflow-y: auto;
             position: relative;
         }
 
         .paper-container {
             position: relative;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
         }
 
         .paper {
@@ -225,6 +230,14 @@
                 width: 100%;
                 min-height: 100%;
                 padding: 0;
+                margin-bottom: 0;
+                /* remove gap on print */
+                page-break-after: always;
+                /* Ensure each .paper starts a new print page */
+            }
+
+            .paper:last-child {
+                page-break-after: auto;
             }
         }
 
@@ -472,9 +485,7 @@
 
     <main>
         <div class="paper-container" id="paper-container">
-            <div class="paper" id="form-paper">
-                <!-- Data blocks will be dynamically added here -->
-            </div>
+            <!-- Data pages will be dynamically added here -->
             <!-- Cursor Overlay Container -->
             <div id="cursor-overlay"
                 style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 50;">
@@ -523,7 +534,6 @@
             activeUsersList: document.getElementById('active-users'),
             btnPrint: document.getElementById('btn-print'),
             btnExportWord: document.getElementById('btn-export-word'),
-            formPaper: document.getElementById('form-paper'),
             cursorOverlay: document.getElementById('cursor-overlay'),
             paperContainer: document.getElementById('paper-container')
         };
@@ -629,7 +639,7 @@
 
         function exportToWord() {
             let cleanContent = "";
-            const lineNodes = els.formPaper.querySelectorAll('.line-block');
+            const lineNodes = document.querySelectorAll('.paper .line-block');
             lineNodes.forEach(el => {
                 const text = el.innerText || '';
                 cleanContent += `<div style="border-bottom: 1px dotted #ccc; min-height: 2em; line-height: 2em; font-size: 11pt; padding: 0 10px; white-space: pre-wrap; word-break: break-all;">${text}</div>`;
@@ -834,13 +844,24 @@
         // Apply Data to UI
         function formToView(linesData) {
             if (!linesData) return;
-            const lineNodes = els.formPaper.querySelectorAll('.line-block');
+
+            // First ensure we have enough pages for all lines in data
+            let maxLineIdx = 44; // At least one page
+            for (const key in linesData) {
+                const match = key.match(/line-(\d+)/);
+                if (match) {
+                    maxLineIdx = Math.max(maxLineIdx, parseInt(match[1]));
+                }
+            }
+            ensurePagesForLine(maxLineIdx);
+
+            const lineNodes = document.querySelectorAll('.paper .line-block');
 
             lineNodes.forEach(el => {
                 const id = el.getAttribute('data-line-id');
                 const remoteText = linesData[id] || '';
                 const localText = el.innerText || '';
-                const originalText = AppState.syncedData.lines[id] || '';
+                const originalText = (AppState.syncedData.lines && AppState.syncedData.lines[id]) ? AppState.syncedData.lines[id] : '';
                 const isActive = (document.activeElement === el);
 
                 if (localText !== remoteText) {
@@ -1153,17 +1174,25 @@
                     const part2 = text.substring(caretPos);
 
                     // 1. Shift contents in AppState.localData.lines DOWN
-                    for (let i = 44; i > index + 1; i--) {
-                        const targetId = `line-${i}`;
-                        const sourceId = `line-${i - 1}`;
-                        AppState.localData.lines[targetId] = AppState.localData.lines[sourceId] || '';
+                    const maxKey = Math.max(-1, ...Object.keys(AppState.localData.lines).map(k => parseInt(k.replace('line-', '')) || -1));
+                    const shiftStart = Math.max(index + 1, maxKey);
+
+                    for (let i = shiftStart; i >= index + 1; i--) {
+                        const targetId = `line-${i + 1}`;
+                        const sourceId = `line-${i}`;
+                        if (AppState.localData.lines[sourceId]) {
+                            AppState.localData.lines[targetId] = AppState.localData.lines[sourceId];
+                        } else {
+                            delete AppState.localData.lines[targetId];
+                        }
                     }
 
                     // 2. Update current and next line in AppState
                     AppState.localData.lines[`line-${index}`] = part1;
-                    if (index < 44) {
-                        AppState.localData.lines[`line-${index + 1}`] = part2;
-                    }
+                    AppState.localData.lines[`line-${index + 1}`] = part2;
+
+                    // Ensure pages exist right away before updating UI, so target exists
+                    ensurePagesForLine(shiftStart + 1);
 
                     // 3. Update UI
                     formToView(AppState.localData.lines);
@@ -1173,7 +1202,7 @@
 
                     // 5. Focus next line
                     const nextId = `line-${index + 1}`;
-                    const nextEl = els.formPaper.querySelector(`.line-block[data-line-id="${nextId}"]`);
+                    const nextEl = document.querySelector(`.line-block[data-line-id="${nextId}"]`);
                     if (nextEl) {
                         nextEl.focus();
                         setCaretPosition(nextEl, 0);
@@ -1191,7 +1220,7 @@
                         e.preventDefault();
 
                         const prevId = `line-${index - 1}`;
-                        const prevEl = els.formPaper.querySelector(`.line-block[data-line-id="${prevId}"]`);
+                        const prevEl = document.querySelector(`.line-block[data-line-id="${prevId}"]`);
                         if (!prevEl) return;
 
                         const currentText = el.innerText;
@@ -1202,13 +1231,17 @@
                         AppState.localData.lines[prevId] = prevText + currentText;
 
                         // 2. Shift contents in AppState.localData.lines UP
-                        for (let i = index; i < 44; i++) {
+                        const maxKey = Math.max(-1, ...Object.keys(AppState.localData.lines).map(k => parseInt(k.replace('line-', '')) || -1));
+
+                        for (let i = index; i <= maxKey; i++) {
                             const targetId = `line-${i}`;
                             const sourceId = `line-${i + 1}`;
-                            AppState.localData.lines[targetId] = AppState.localData.lines[sourceId] || '';
+                            if (AppState.localData.lines[sourceId]) {
+                                AppState.localData.lines[targetId] = AppState.localData.lines[sourceId];
+                            } else {
+                                delete AppState.localData.lines[targetId];
+                            }
                         }
-                        // Clear last line
-                        delete AppState.localData.lines[`line-44`];
 
                         // 3. Update UI
                         formToView(AppState.localData.lines);
@@ -1217,19 +1250,25 @@
                         await saveFullData();
 
                         // 5. Focus previous line and set caret
-                        prevEl.focus();
-                        setCaretPosition(prevEl, newCaretPos);
+                        // prevEl might have been re-rendered by formToView
+                        const newPrevEl = document.querySelector(`.line-block[data-line-id="${prevId}"]`);
+                        if (newPrevEl) {
+                            newPrevEl.focus();
+                            setCaretPosition(newPrevEl, newCaretPos);
+                        }
 
                         performSync();
                     }
                 } else if (e.key === 'ArrowUp') {
-                    const prevLine = el.previousElementSibling;
-                    if (prevLine && prevLine.classList.contains('line-block')) {
+                    const prevId = `line-${index - 1}`;
+                    const prevLine = document.querySelector(`.line-block[data-line-id="${prevId}"]`);
+                    if (prevLine) {
                         prevLine.focus();
                     }
                 } else if (e.key === 'ArrowDown') {
-                    const nextLine = el.nextElementSibling;
-                    if (nextLine && nextLine.classList.contains('line-block')) {
+                    const nextId = `line-${index + 1}`;
+                    const nextLine = document.querySelector(`.line-block[data-line-id="${nextId}"]`);
+                    if (nextLine) {
                         nextLine.focus();
                     }
                 }
@@ -1258,19 +1297,48 @@
             });
         }
 
-        function setupFormListeners() {
-            // Generate lines on paper
-            els.formPaper.innerHTML = '';
-            for (let i = 0; i < 45; i++) {
-                const id = `line-${i}`;
-                const el = document.createElement('div');
-                el.className = 'line-block';
-                el.setAttribute('data-line-id', id);
-                el.setAttribute('contenteditable', 'true');
-                els.formPaper.appendChild(el);
+        function ensurePagesForLine(maxLineIndex) {
+            const PAGESIZE = 45;
+            let totalPagesCurrent = document.querySelectorAll('.paper').length;
+            let totalPagesRequired = Math.max(1, Math.ceil((maxLineIndex + 1) / PAGESIZE));
 
-                attachListenersToLine(el);
+            for (let p = totalPagesCurrent; p < totalPagesRequired; p++) {
+                // Create a new paper element
+                const paper = document.createElement('div');
+                paper.className = 'paper';
+                paper.id = `form-paper-${p}`;
+                els.paperContainer.insertBefore(paper, els.cursorOverlay);
+
+                // Add lines for this page
+                for (let i = 0; i < PAGESIZE; i++) {
+                    const lineIndex = p * PAGESIZE + i;
+                    const id = `line-${lineIndex}`;
+                    const el = document.createElement('div');
+                    el.className = 'line-block';
+                    el.setAttribute('data-line-id', id);
+                    el.setAttribute('contenteditable', 'true');
+                    paper.appendChild(el);
+                    attachListenersToLine(el);
+                }
             }
+        }
+
+        function setupFormListeners() {
+            // Initial generation of at least 1 page
+            const containerNodes = document.querySelectorAll('.paper');
+            containerNodes.forEach(node => node.remove());
+
+            // Find current max line in data if exists
+            let maxLineRaw = 44;
+            if (AppState.localData && AppState.localData.lines) {
+                for (const key in AppState.localData.lines) {
+                    const match = key.match(/line-(\d+)/);
+                    if (match) {
+                        maxLineRaw = Math.max(maxLineRaw, parseInt(match[1]));
+                    }
+                }
+            }
+            ensurePagesForLine(maxLineRaw);
         }
 
         // Start
